@@ -360,41 +360,52 @@
         }
 
         // Fetch Data Function with CORS Handling & Fallback
-        async function fetchSalesData() {
-            refreshIconEl.classList.add('fa-spin');
-            const timestamp = new Date().getTime();
-            const requestUrl = `${API_URL}?_t=${timestamp}`;
+      // Fetch Data Function with Multiple CORS Proxies Fallback
+async function fetchSalesData() {
+    refreshIconEl.classList.add('fa-spin');
+    const timestamp = new Date().getTime();
+    const originalUrl = `${API_URL}?_t=${timestamp}`;
 
-            try {
-                // Try direct fetch first
-                let response;
-                try {
-                    response = await fetch(requestUrl, { mode: 'cors' });
-                } catch (directErr) {
-                    // If direct fetch fails due to CORS or network, use public CORS proxy as robust fallback
-                    console.warn("Direct fetch failed, trying via CORS proxy...", directErr);
-                    const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(requestUrl)}`;
-                    response = await fetch(proxyUrl);
-                }
+    // 依序嘗試：1. 直接請求 2. corsproxy.io 3. allorigins.win
+    const candidateUrls = [
+        originalUrl,
+        `https://corsproxy.io/?${encodeURIComponent(originalUrl)}`,
+        `https://api.allorigins.win/raw?url=${encodeURIComponent(originalUrl)}`
+    ];
 
-                if (!response.ok) {
-                    throw new Error(`伺服器回應狀態碼錯誤: ${response.status}`);
-                }
+    let response = null;
+    let success = false;
 
-                const data = await response.json();
-                parseAndUpdateData(data);
-                hideError();
-                updateConnectionStatus(true);
-
-            } catch (err) {
-                console.error("API 抓取失敗:", err);
-                showError(`無法載入即時資料 (${err.message})。可能受到瀏覽器 CORS 限制，系統將維持計時並自動重試。`);
-                updateConnectionStatus(false);
-            } finally {
-                refreshIconEl.classList.remove('fa-spin');
+    for (const url of candidateUrls) {
+        try {
+            response = await fetch(url);
+            if (response.ok) {
+                success = true;
+                break; // 只要有一個成功就跳出迴圈
             }
+        } catch (err) {
+            console.warn(`透過此通道連線失敗: ${url}`, err);
+        }
+    }
+
+    try {
+        if (!success || !response) {
+            throw new Error("所有連線通道皆失敗或遭到 CORS 攔截");
         }
 
+        const data = await response.json();
+        parseAndUpdateData(data);
+        hideError();
+        updateConnectionStatus(true);
+
+    } catch (err) {
+        console.error("API 抓取與解析失敗:", err);
+        showError(`無法載入即時資料 (${err.message})。可能受到瀏覽器 CORS 限制，系統將維持計時並自動重試。`);
+        updateConnectionStatus(false);
+    } finally {
+        refreshIconEl.classList.remove('fa-spin');
+    }
+}
         // Parse JSON data and update DOM & Charts
         function parseAndUpdateData(data) {
             // Extract fields based on requirements
